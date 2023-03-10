@@ -770,6 +770,9 @@ export interface ICompareState {
   /** The text entered into the compare branch filter text box */
   readonly filterText: string
 
+  /** Teh text entered into the search commit filter text box */
+  readonly searchCommitText: string;
+
   /** The SHA associated with the most recent history state */
   readonly tip: string | null
 
@@ -807,6 +810,17 @@ export interface ICompareState {
 }
 
 export interface ICompareFormUpdate {
+  /** The updated filter text to set */
+  readonly filterText: string
+
+  /** The updated filter text to set */
+  readonly searchCommitText: string  
+
+  /** Thew new state of the branches list */
+  readonly showBranchList: boolean
+}
+
+export interface ISearchCommitFormUpdate {
   /** The updated filter text to set */
   readonly filterText: string
 

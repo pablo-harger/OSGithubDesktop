@@ -63,7 +63,7 @@ interface ICompareSidebarState {
    *
    * For all other cases, use the prop
    */
-  readonly focusedBranch: Branch | null
+  readonly focusedBranch: Branch | null,
 }
 
 /** If we're within this many rows from the bottom, load the next history batch. */
@@ -74,6 +74,7 @@ export class CompareSidebar extends React.Component<
   ICompareSidebarState
 > {
   private textbox: TextBox | null = null
+  private textboxSearch: TextBox | null = null
   private readonly loadChangedFilesScheduler = new ThrottledScheduler(200)
   private branchList: BranchList | null = null
   private loadingMoreCommitsPromise: Promise<void> | null = null
@@ -94,7 +95,7 @@ export class CompareSidebar extends React.Component<
       newFormState.kind === HistoryTabMode.History
     ) {
       this.setState({
-        focusedBranch: null,
+        focusedBranch: null
       })
       return
     }
@@ -116,9 +117,9 @@ export class CompareSidebar extends React.Component<
   }
 
   public componentDidUpdate(prevProps: ICompareSidebarProps) {
-    const { showBranchList } = this.props.compareState
-
-    if (showBranchList === prevProps.compareState.showBranchList) {
+    const { showBranchList, searchCommitText } = this.props.compareState
+    
+    if (showBranchList === prevProps.compareState.showBranchList && searchCommitText === prevProps.compareState.searchCommitText) {
       return
     }
 
@@ -129,6 +130,14 @@ export class CompareSidebar extends React.Component<
         this.textbox.blur()
       }
     }
+
+    if (this.textboxSearch !== null) {
+      if (searchCommitText.length !== 0) {
+        this.textboxSearch.focus()
+      } else {
+        this.textboxSearch.blur()
+      }
+    }
   }
 
   public componentWillMount() {
@@ -137,6 +146,7 @@ export class CompareSidebar extends React.Component<
 
   public componentWillUnmount() {
     this.textbox = null
+    this.textboxSearch = null
 
     // by hiding the branch list here when the component is torn down
     // we ensure any ahead/behind computation work is discarded
@@ -146,26 +156,37 @@ export class CompareSidebar extends React.Component<
   }
 
   public render() {
-    const { branches, filterText, showBranchList } = this.props.compareState
+    const { branches, filterText, searchCommitText, showBranchList } = this.props.compareState
     const placeholderText = getPlaceholderText(this.props.compareState)
 
     return (
       <div id="compare-view">
         <div className="compare-form">
           <FancyTextBox
-            symbol={OcticonSymbol.gitBranch}
-            type="search"
-            placeholder={placeholderText}
-            onFocus={this.onTextBoxFocused}
-            value={filterText}
-            disabled={!branches.some(b => !b.isDesktopForkRemoteBranch)}
-            onRef={this.onTextBoxRef}
-            onValueChanged={this.onBranchFilterTextChanged}
-            onKeyDown={this.onBranchFilterKeyDown}
-            onSearchCleared={this.handleEscape}
-          />
-        </div>
-
+              symbol={OcticonSymbol.gitBranch}
+              type="search"
+              placeholder={placeholderText}
+              onFocus={this.onTextBoxFocused}
+              value={filterText}
+              disabled={!branches.some(b => !b.isDesktopForkRemoteBranch)}
+              onRef={this.onTextBoxRef}
+              onValueChanged={this.onBranchFilterTextChanged}
+              onKeyDown={this.onBranchFilterKeyDown}
+              onSearchCleared={this.handleEscape}
+            />
+          </div>
+          <div className="search-form">
+            <FancyTextBox
+              symbol={OcticonSymbol.search}
+              type="search"
+              placeholder="Search a commit..."
+              value={searchCommitText}
+              onRef={this.onTextboxSearchRef}
+              onValueChanged={this.onSearchFilterTextChanged}
+              //onKeyDown={this.onBranchFilterKeyDown}
+              onSearchCleared={this.handleSearchEscape}
+            />
+          </div>
         {showBranchList ? this.renderFilterList() : this.renderCommits()}
       </div>
     )
@@ -200,6 +221,21 @@ export class CompareSidebar extends React.Component<
     })
   }
 
+  private getFilteredCommitsSHAs(SHAs: ReadonlyArray<string>): ReadonlyArray<string> {
+    if (this.props.compareState.searchCommitText.length === 0) {
+      return SHAs;
+    }
+    const commits = new Array<string>()
+    for (const sha of SHAs) {
+      const commitMaybe = this.props.commitLookup.get(sha)
+      // this should never be undefined, but just in case
+      if (commitMaybe !== undefined && commitMaybe.summary.toLowerCase().includes(this.props.compareState.searchCommitText.toLowerCase())) {
+        commits.push(commitMaybe.sha)
+      }
+    }
+    return commits    
+  }
+
   private renderCommitList() {
     const { formState, commitSHAs } = this.props.compareState
 
@@ -228,7 +264,8 @@ export class CompareSidebar extends React.Component<
         gitHubRepository={this.props.repository.gitHubRepository}
         isLocalRepository={this.props.isLocalRepository}
         commitLookup={this.props.commitLookup}
-        commitSHAs={commitSHAs}
+        //commitSHAs={commitSHAs}
+        commitSHAs={this.getFilteredCommitsSHAs(commitSHAs)}
         selectedSHAs={this.props.selectedCommitShas}
         shasToHighlight={this.props.shasToHighlight}
         localCommitSHAs={this.props.localCommitSHAs}
@@ -441,6 +478,9 @@ export class CompareSidebar extends React.Component<
       if (this.textbox) {
         this.textbox.blur()
       }
+      if (this.textboxSearch){
+        this.textboxSearch.blur()
+      }
     } else if (key === 'Escape') {
       this.handleEscape()
     } else if (key === 'ArrowDown') {
@@ -458,6 +498,13 @@ export class CompareSidebar extends React.Component<
     this.clearFilterState()
     if (this.textbox) {
       this.textbox.blur()
+    }
+  }
+
+  private handleSearchEscape = () => {
+    this.clearSearchState()
+    if (this.textboxSearch) {
+      this.textboxSearch.blur()
     }
   }
 
@@ -519,6 +566,12 @@ export class CompareSidebar extends React.Component<
     })
   }
 
+  private onSearchFilterTextChanged = (searchCommitText: string) => {
+    this.props.dispatcher.updateCompareForm(this.props.repository, {
+      searchCommitText
+    })
+  }
+
   private clearFilterState = () => {
     this.setState({
       focusedBranch: null,
@@ -529,6 +582,12 @@ export class CompareSidebar extends React.Component<
     })
 
     this.viewHistoryForBranch()
+  }
+
+  private clearSearchState = () => {
+    this.props.dispatcher.updateCompareForm(this.props.repository, {
+      searchCommitText: '',
+    })
   }
 
   private onBranchItemClicked = (branch: Branch) => {
@@ -565,6 +624,10 @@ export class CompareSidebar extends React.Component<
 
   private onTextBoxRef = (textbox: TextBox) => {
     this.textbox = textbox
+  }
+
+  private onTextboxSearchRef = (textbox: TextBox) => {
+    this.textboxSearch = textbox;
   }
 
   private onCreateTag = (targetCommitSha: string) => {
