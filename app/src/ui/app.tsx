@@ -166,6 +166,7 @@ import { DialogStackContext } from './dialog'
 import { TestNotifications } from './test-notifications/test-notifications'
 import { NotificationsDebugStore } from '../lib/stores/notifications-debug-store'
 import { PullRequestComment } from './notifications/pull-request-comment'
+import { UnknownAuthors } from './unknown-authors/unknown-authors-dialog'
 
 const MinuteInMilliseconds = 1000 * 60
 const HourInMilliseconds = MinuteInMilliseconds * 60
@@ -287,14 +288,7 @@ export class App extends React.Component<IAppProps, IAppState> {
     updateStore.onError(error => {
       log.error(`Error checking for updates`, error)
 
-      // It is possible to obtain an error with no message. This was found to be
-      // the case on a windows instance where there was not space on the hard
-      // drive to download the installer. In this case, we want to override the
-      // error message so the user is not given a blank dialog.
-      const hasErrorMsg = error.message.trim().length > 0
-      this.props.dispatcher.postError(
-        hasErrorMsg ? error : new Error('Checking for updates failed.')
-      )
+      this.props.dispatcher.postError(error)
     })
 
     ipcRenderer.on('launch-timing-stats', (_, stats) => {
@@ -376,9 +370,9 @@ export class App extends React.Component<IAppProps, IAppState> {
       case 'fetch':
         return this.fetch()
       case 'show-changes':
-        return this.showChanges()
+        return this.showChanges(true)
       case 'show-history':
-        return this.showHistory()
+        return this.showHistory(true)
       case 'choose-repository':
         return this.chooseRepository()
       case 'add-local-repository':
@@ -407,7 +401,7 @@ export class App extends React.Component<IAppProps, IAppState> {
         this.props.dispatcher.recordMenuInitiatedUpdate()
         return this.updateBranchWithContributionTargetBranch()
       case 'compare-to-branch':
-        return this.showHistory(true)
+        return this.showHistory(false, true)
       case 'merge-branch':
         this.props.dispatcher.recordMenuInitiatedMerge()
         return this.mergeBranch()
@@ -465,6 +459,10 @@ export class App extends React.Component<IAppProps, IAppState> {
         return this.props.dispatcher.postError(
           new Error('Test Error - to use default error handler' + uuid())
         )
+      case 'increase-active-resizable-width':
+        return this.resizeActiveResizable('increase-active-resizable-width')
+      case 'decrease-active-resizable-width':
+        return this.resizeActiveResizable('decrease-active-resizable-width')
       default:
         return assertNever(name, `Unknown menu event name: ${name}`)
     }
@@ -596,6 +594,25 @@ export class App extends React.Component<IAppProps, IAppState> {
   }
 
   /**
+   * Handler for the 'increase-active-resizable-width' and
+   * 'decrease-active-resizable-width' menu event, dispatches a custom DOM event
+   * originating from the element which currently has keyboard focus. Components
+   * have a chance to intercept this event and implement their resize logic.
+   */
+  private resizeActiveResizable(
+    menuId:
+      | 'increase-active-resizable-width'
+      | 'decrease-active-resizable-width'
+  ) {
+    document.activeElement?.dispatchEvent(
+      new CustomEvent(menuId, {
+        bubbles: true,
+        cancelable: true,
+      })
+    )
+  }
+
+  /**
    * Handler for the 'select-all' menu event, dispatches
    * a custom DOM event originating from the element which
    * currently has keyboard focus. Components have a chance
@@ -645,7 +662,7 @@ export class App extends React.Component<IAppProps, IAppState> {
   }
 
   private async goToCommitMessage() {
-    await this.showChanges()
+    await this.showChanges(false)
     this.props.dispatcher.setCommitMessageFocus(true)
   }
 
@@ -892,7 +909,10 @@ export class App extends React.Component<IAppProps, IAppState> {
     this.props.dispatcher.showPopup({ type: PopupType.About })
   }
 
-  private async showHistory(showBranchList: boolean = false) {
+  private async showHistory(
+    shouldFocusHistory: boolean,
+    showBranchList: boolean = false
+  ) {
     const state = this.state.selectedState
     if (state == null || state.type !== SelectionType.Repository) {
       return
@@ -913,19 +933,28 @@ export class App extends React.Component<IAppProps, IAppState> {
       filterText: '',
       showBranchList,
     })
+
+    if (shouldFocusHistory) {
+      this.repositoryViewRef.current?.setFocusHistoryNeeded()
+    }
   }
 
-  private showChanges() {
+  private async showChanges(shouldFocusChanges: boolean) {
     const state = this.state.selectedState
     if (state == null || state.type !== SelectionType.Repository) {
       return
     }
 
     this.props.dispatcher.closeCurrentFoldout()
-    return this.props.dispatcher.changeRepositorySection(
+
+    await this.props.dispatcher.changeRepositorySection(
       state.repository,
       RepositorySectionTab.Changes
     )
+
+    if (shouldFocusChanges) {
+      this.repositoryViewRef.current?.setFocusChangesNeeded()
+    }
   }
 
   private chooseRepository() {
@@ -1038,6 +1067,14 @@ export class App extends React.Component<IAppProps, IAppState> {
       window.addEventListener('keydown', this.onWindowKeyDown)
       window.addEventListener('keyup', this.onWindowKeyUp)
     }
+
+    document.addEventListener('focus', this.onDocumentFocus, {
+      capture: true,
+    })
+  }
+
+  private onDocumentFocus = (event: FocusEvent) => {
+    this.props.dispatcher.appFocusedElementChanged()
   }
 
   /**
@@ -1357,6 +1394,12 @@ export class App extends React.Component<IAppProps, IAppState> {
       this.state.currentFoldout &&
       this.state.currentFoldout.type === FoldoutType.AppMenu
 
+    // As Linux still uses the classic Electron menu, we are opting out of the
+    // custom menu that is shown as part of the title bar below
+    if (__LINUX__) {
+      return null
+    }
+
     // When we're in full-screen mode on Windows we only need to render
     // the title bar when the menu bar is active. On other platforms we
     // never render the title bar while in full-screen mode.
@@ -1559,7 +1602,6 @@ export class App extends React.Component<IAppProps, IAppState> {
             onDismissed={onPopupDismissedFn}
             selectedShell={this.state.selectedShell}
             selectedTheme={this.state.selectedTheme}
-            customTheme={this.state.customTheme}
             repositoryIndicatorsEnabled={this.state.repositoryIndicatorsEnabled}
           />
         )
@@ -2413,6 +2455,16 @@ export class App extends React.Component<IAppProps, IAppState> {
           />
         )
       }
+      case PopupType.UnknownAuthors: {
+        return (
+          <UnknownAuthors
+            key="unknown-authors"
+            authors={popup.authors}
+            onCommit={popup.onCommit}
+            onDismissed={onPopupDismissedFn}
+          />
+        )
+      }
       default:
         return assertNever(popup, `Unknown popup type: ${popup}`)
     }
@@ -3169,13 +3221,7 @@ export class App extends React.Component<IAppProps, IAppState> {
 
     return (
       <div id="desktop-app-chrome" className={className}>
-        <AppTheme
-          theme={currentTheme}
-          customTheme={this.state.customTheme}
-          useCustomTheme={
-            this.state.selectedTheme === ApplicationTheme.HighContrast
-          }
-        />
+        <AppTheme theme={currentTheme} />
         {this.renderTitlebar()}
         {this.state.showWelcomeFlow
           ? this.renderWelcomeFlow()

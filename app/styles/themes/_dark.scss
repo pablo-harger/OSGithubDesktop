@@ -49,7 +49,7 @@ body.theme-dark {
    * Background color for custom scroll bars.
    * The color is applied to the thumb part of the scrollbar.
    *
-   * Note: Only applies to win32 platforms
+   * Note: Only applies to win32 and linux platforms
    */
   --scroll-bar-thumb-background-color: rgba(255, 255, 255, 0.2);
 
@@ -57,7 +57,7 @@ body.theme-dark {
    * Background color for custom scroll bars in their active state.
    * The color is applied to the thumb part of the scrollbar.
    *
-   * Note: Only applies to win32 platforms
+   * Note: Only applies to win32 and linux platforms
    */
   --scroll-bar-thumb-background-color-active: rgba(255, 255, 255, 0.5);
 
@@ -237,12 +237,6 @@ body.theme-dark {
 
   /** The highlight color used for focus rings and focus box shadows */
   --focus-color: #{$blue};
-
-  /**
-   * An alternative focus color to use when the background color of
-   * the focused element is the same as the regular focus color.
-   */
-  --alt-focus-color: #{$blue-800};
 
   /**
    * Variables for form elements

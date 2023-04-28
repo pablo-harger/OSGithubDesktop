@@ -12,7 +12,7 @@ import {
 } from '.'
 import { Account } from '../../models/account'
 import { AppMenu, IMenu } from '../../models/app-menu'
-import { IAuthor } from '../../models/author'
+import { Author } from '../../models/author'
 import { Branch, BranchType, IAheadBehind } from '../../models/branch'
 import { BranchesTab } from '../../models/branches-tab'
 import { CloneRepositoryTab } from '../../models/clone-repository-tab'
@@ -73,7 +73,6 @@ import {
   ApplicationTheme,
   getCurrentlyAppliedTheme,
   getPersistedThemeName,
-  ICustomTheme,
   setPersistedTheme,
 } from '../../ui/lib/application-theme'
 import {
@@ -316,6 +315,7 @@ import { findContributionTargetDefaultBranch } from '../branch'
 import { ValidNotificationPullRequestReview } from '../valid-notification-pull-request-review'
 import { determineMergeability } from '../git/merge-tree'
 import { PopupManager } from '../popup-manager'
+import { resizableComponentClass } from '../../ui/resizable'
 
 const LastSelectedRepositoryIDKey = 'last-selected-repository-id'
 
@@ -389,7 +389,6 @@ const InitialRepositoryIndicatorTimeout = 2 * 60 * 1000
 const MaxInvalidFoldersToDisplay = 3
 
 const lastThankYouKey = 'version-and-users-of-last-thank-you'
-const customThemeKey = 'custom-theme-key'
 const pullRequestSuggestedNextActionKey =
   'pull-request-suggested-next-action-key'
 
@@ -449,6 +448,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   private windowState: WindowState | null = null
   private windowZoomFactor: number = 1
+  private resizablePaneActive = false
   private isUpdateAvailableBannerVisible: boolean = false
   private isUpdateShowcaseVisible: boolean = false
 
@@ -496,7 +496,6 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   private selectedBranchesTab = BranchesTab.Branches
   private selectedTheme = ApplicationTheme.System
-  private customTheme?: ICustomTheme
   private currentTheme: ApplicableTheme = ApplicationTheme.Light
 
   private useWindowsOpenSSH: boolean = false
@@ -975,7 +974,6 @@ export class AppStore extends TypedBaseStore<IAppState> {
       selectedCloneRepositoryTab: this.selectedCloneRepositoryTab,
       selectedBranchesTab: this.selectedBranchesTab,
       selectedTheme: this.selectedTheme,
-      customTheme: this.customTheme,
       currentTheme: this.currentTheme,
       apiRepositories: this.apiRepositoriesStore.getState(),
       useWindowsOpenSSH: this.useWindowsOpenSSH,
@@ -988,6 +986,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
       showCIStatusPopover: this.showCIStatusPopover,
       notificationsEnabled: getNotificationsEnabled(),
       pullRequestSuggestedNextAction: this.pullRequestSuggestedNextAction,
+      resizablePaneActive: this.resizablePaneActive,
     }
   }
 
@@ -2088,14 +2087,10 @@ export class AppStore extends TypedBaseStore<IAppState> {
     this.showSideBySideDiff = getShowSideBySideDiff()
 
     this.selectedTheme = getPersistedThemeName()
-    this.customTheme = getObject<ICustomTheme>(customThemeKey)
     // Make sure the persisted theme is applied
     setPersistedTheme(this.selectedTheme)
 
-    this.currentTheme =
-      this.selectedTheme !== ApplicationTheme.HighContrast
-        ? await getCurrentlyAppliedTheme()
-        : this.selectedTheme
+    this.currentTheme = await getCurrentlyAppliedTheme()
 
     themeChangeMonitor.onThemeChanged(theme => {
       this.currentTheme = theme
@@ -3256,6 +3251,8 @@ export class AppStore extends TypedBaseStore<IAppState> {
       return
     }
 
+    // loadBranches needs the default remote to determine the default branch
+    await gitStore.loadRemotes()
     await gitStore.loadBranches()
 
     const section = state.selectedSection
@@ -3273,7 +3270,6 @@ export class AppStore extends TypedBaseStore<IAppState> {
     }
 
     await Promise.all([
-      gitStore.loadRemotes(),
       gitStore.updateLastFetched(),
       gitStore.loadStashEntries(),
       this._refreshAuthor(repository),
@@ -4553,6 +4549,8 @@ export class AppStore extends TypedBaseStore<IAppState> {
     if (gitStore.tip.kind === TipState.Valid) {
       await this.performPush(repository, account)
     }
+
+    await gitStore.refreshDefaultBranch()
 
     return this.repositoryWithRefreshedGitHubRepository(repository)
   }
@@ -6305,7 +6303,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
    */
   public _setCoAuthors(
     repository: Repository,
-    coAuthors: ReadonlyArray<IAuthor>
+    coAuthors: ReadonlyArray<Author>
   ) {
     this.gitStoreCache.get(repository).setCoAuthors(coAuthors)
     return Promise.resolve()
@@ -6317,20 +6315,6 @@ export class AppStore extends TypedBaseStore<IAppState> {
   public _setSelectedTheme(theme: ApplicationTheme) {
     setPersistedTheme(theme)
     this.selectedTheme = theme
-    if (theme === ApplicationTheme.HighContrast) {
-      this.currentTheme = theme
-    }
-    this.emitUpdate()
-
-    return Promise.resolve()
-  }
-
-  /**
-   * Set the custom application-wide theme
-   */
-  public _setCustomTheme(theme: ICustomTheme) {
-    setObject(customThemeKey, theme)
-    this.customTheme = theme
     this.emitUpdate()
 
     return Promise.resolve()
@@ -7665,6 +7649,33 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
     this.emitUpdate()
   }
+
+  private isResizePaneActive() {
+    if (document.activeElement === null) {
+      return false
+    }
+
+    const appMenuBar = document.getElementById('app-menu-bar')
+
+    // Don't track windows menu items as focused elements for keeping
+    // track of recently focused elements we want to act upon
+    if (appMenuBar?.contains(document.activeElement)) {
+      return this.resizablePaneActive
+    }
+
+    return (
+      document.activeElement.closest(`.${resizableComponentClass}`) !== null
+    )
+  }
+
+  public _appFocusedElementChanged() {
+    const resizablePaneActive = this.isResizePaneActive()
+
+    if (resizablePaneActive !== this.resizablePaneActive) {
+      this.resizablePaneActive = resizablePaneActive
+      this.emitUpdate()
+    }
+  }
 }
 
 /**
@@ -7729,5 +7740,12 @@ function constrain(
   min = -Infinity,
   max = Infinity
 ): IConstrainedValue {
-  return { value: typeof value === 'number' ? value : value.value, min, max }
+  // Match CSS's behavior where min-width takes precedence over max-width
+  // See https://stackoverflow.com/a/16063871
+  const constrainedMax = max < min ? min : max
+  return {
+    value: typeof value === 'number' ? value : value.value,
+    min,
+    max: constrainedMax,
+  }
 }

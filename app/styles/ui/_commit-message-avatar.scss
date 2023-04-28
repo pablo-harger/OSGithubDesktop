@@ -17,10 +17,10 @@
 
     border-radius: 50%;
     margin-right: var(--spacing-half);
+  }
 
-    .avatar {
-      margin-right: 0;
-    }
+  .toggletip {
+    margin-right: var(--spacing-half);
   }
 
   .warning-badge {
@@ -88,5 +88,20 @@
     bottom: 13px;
 
     width: 300px;
+
+    @media (max-height: 500px) {
+      bottom: -125px;
+
+      &.popover-caret-left-bottom {
+        &::before,
+        &::after {
+          bottom: 158px;
+        }
+      }
+    }
+  }
+
+  .link-button-component {
+    display: inline;
   }
 }

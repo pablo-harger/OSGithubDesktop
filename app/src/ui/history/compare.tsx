@@ -77,6 +77,7 @@ export class CompareSidebar extends React.Component<
   private textboxSearch: TextBox | null = null
   private readonly loadChangedFilesScheduler = new ThrottledScheduler(200)
   private branchList: BranchList | null = null
+  private commitListRef = React.createRef<CommitList>()
   private loadingMoreCommitsPromise: Promise<void> | null = null
   private resultCount = 0
 
@@ -140,6 +141,10 @@ export class CompareSidebar extends React.Component<
     }
   }
 
+  public focusHistory() {
+    this.commitListRef.current?.focus()
+  }
+
   public componentWillMount() {
     this.props.dispatcher.initializeCompare(this.props.repository)
   }
@@ -160,7 +165,7 @@ export class CompareSidebar extends React.Component<
     const placeholderText = getPlaceholderText(this.props.compareState)
 
     return (
-      <div id="compare-view">
+      <div id="compare-view" role="tabpanel" aria-labelledby="history-tab">
         <div className="compare-form">
           <FancyTextBox
               symbol={OcticonSymbol.gitBranch}
@@ -261,6 +266,7 @@ export class CompareSidebar extends React.Component<
 
     return (
       <CommitList
+        ref={this.commitListRef}
         gitHubRepository={this.props.repository.gitHubRepository}
         isLocalRepository={this.props.isLocalRepository}
         commitLookup={this.props.commitLookup}
